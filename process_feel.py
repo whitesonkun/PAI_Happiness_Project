@@ -2,7 +2,7 @@ from scipy.io import loadmat
 import datetime
 from biosppy.signals import bvp
 from parse import *
-from yetti_utils import dotdict
+from yetti_utils import DotDict
 
 def load_feel_data(sub_id):  # TODO machine learning to maximize this shit
     feel_loc = "../Data/FeelData/EEGStudy1/Feel_Data/"

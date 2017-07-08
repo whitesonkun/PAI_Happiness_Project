@@ -3,7 +3,9 @@ from process_emotiv import *
 from process_feel import *
 from eeg_analysis import *
 from eeg_clean_channels import plot_potentially_bad_channels
+from yetti_utils import *
 import os.path
+import sys
 
 def load_eeg_data(sub_id: int, refresh_events: bool=False) -> object:
     edf_loc = "../Data/EEG/"
@@ -44,17 +46,44 @@ def load_eeg_data(sub_id: int, refresh_events: bool=False) -> object:
                                       init,
                                       refresh_events)
 
+def save_sub_data(sub_data):
+    """Load exisitn subject data for a subject if it exisits"""
+    file_name = "working_data/PAI_wd_sub"+str(sub_data.meta.sub_id)
+    sub_data.events.to_csv(file_name+'_events.csv')
+    sub_data.eeg.raw.save(file_name+'_raw.fif', overwrite=True)
+    with open(file_name+'_meta.txt', 'w') as f:
+        json.dump(sub_data.meta, f, ensure_ascii=False)
+
+def load_sub_data(sub_id):
+    sub_data = init_new_subject(sub_id)
+    file_name = "working_data/PAI_wd_sub" + str(sub_data.meta.sub_id)
+    try:
+        sub_data.events = pd.read_csv(file_name+'_events.csv')
+        sub_data.eeg.raw = mne.io.read_raw_fif(file_name + '_raw.fif')
+        with open(file_name+'_meta.txt') as r:
+            sub_data.meta = json.load(r)
+    except FileNotFoundError:
+        return False
+
+
+def init_new_subject(sub_id):
+    """Created the object to hold a subjects data"""
+    sub_data = DotDict({'meta': {'sub_id': sub_id},'eeg':{}})
+    return sub_data
+
 if __name__ == "__main__":
 
     behav_loc = "../Data/Behavioral/EEGStudy1/"
 
     # ideally import counterbalance of good and bad files
-    sub_ids = [2019, 2022, 2024]
-    sub_data = dotdict({})
+    sub_ids = [2019, 2024] #Need to work on 2022
 
     for sub_id in sub_ids:
         # sub_data.feel_data = load_feel_data(sub_id)
-        sub_data.eeg, sub_data.events = load_eeg_data(sub_id)
-        plot_potentially_bad_channels(sub_data.eeg)
+        sub_data = load_sub_data(sub_id) or init_new_subject(sub_id)
+        sub_data.eeg, sub_data.events = load_eeg_data(sub_id)#TODO add check if exisitsgit
+        add_event_channel_to_eeg(sub_data.eeg.raw, sub_data.events)
+        save_sub_data(sub_data)
+        plot_potentially_bad_channels(sub_data.eeg.raw)
         #extract_erps(sub_data.eeg.raw, sub_data.events.eeg_samples['syncDataLight_BeforeInter_flipTime'])
 

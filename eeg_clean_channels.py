@@ -8,12 +8,13 @@ from scipy.ndimage.filters import uniform_filter
 import warnings
 import datetime
 from scipy.interpolate import interp1d
-from yetti_utils import dotdict
+from yetti_utils import *
 
 def plot_potentially_bad_channels(eeg):
     high_amp_channels = flag_channels_with_high_amplitude(eeg)
     eeg.plot()
     plt.show()
+    print('Complete')
 
 
 def flag_channels_with_high_amplitude(eeg):

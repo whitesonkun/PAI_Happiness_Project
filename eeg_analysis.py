@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 import warnings
-from yetti_utils import dotdict
+from yetti_utils import DotDict
 
 def extract_erps(eeg: mne.io.RawArray, events: pd.DataFrame, plot: bool=True):
     """Extract and plot ERP from EEG data"""

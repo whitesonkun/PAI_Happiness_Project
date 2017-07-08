@@ -8,19 +8,31 @@ from scipy.ndimage.filters import uniform_filter
 import warnings
 import datetime
 from scipy.interpolate import interp1d
-from yetti_utils import dotdict
+from yetti_utils import DotDict
+import json
 import os
+
 
 def window_stdev(X, window_size):
     c1 = uniform_filter(X, window_size, mode='reflect')
     c2 = uniform_filter(X * X, window_size, mode='reflect')
     return np.sqrt(c2 - c1 * c1)
 
+
+def add_event_channel_to_eeg(eeg, events):
+    """Adds a channel which goes high to low when each event occurs"""
+    times, data = eeg[1, :]
+    event_channel = np.zeros(times.shape)
+    event_channel[0, events.eeg_samples.astype(int)] = 1
+    channel = mne.io.RawArray(event_channel, mne.create_info(['events'], 128, ch_types=['stim']))
+    eeg.add_channels([channel], True)
+
+
 ## Read EEG
-def sync_matlab_and_eeg_events(edf_filename: str, timing_filename: str, event_filename: str=None, init_slice: int=None, refresh_events: bool=False) -> object:
+def sync_matlab_and_eeg_events(edf_filename: str, timing_filename: str, event_filename: str = None,
+                               init_slice: int = None, force_refresh: bool = False) -> object:
     """Syncs the matlab events with times in the EEG data, returns imported eeg raw eeg and events"""
     sample_rate = 128
-    event_filename
 
     channels_to_exclude = ['COUNTER', 'INTERPOLATED', 'RAW_CQ', 'GYROX', 'GYROY', 'MARKER', 'MARKER_HARDWARE', 'SYNC',
                            'TIME_STAMP_s', 'TIME_STAMP_ms', 'CQ_AF3', 'CQ_F7', 'CQ_F3', 'CQ_FC5', 'CQ_T7', 'CQ_P7',
@@ -50,12 +62,11 @@ def sync_matlab_and_eeg_events(edf_filename: str, timing_filename: str, event_fi
     raw_edf.rename_channels(channel_map)
     raw_edf = mne.set_bipolar_reference(raw_edf, "Sync1", "Sync2", "SyncRR")
     sync_channel0 = raw_edf.copy().pick_channels(["SyncRR"])
-    eeg = process_eeg(raw_edf)
-    if not os.path.exists('working_data'):
-        os.mkdir('working_data')
-    if (not refresh_events) & os.path.isfile(event_filename):
-        events = pd.read_csv(event_filename)
-        return eeg,events
+    # if not os.path.exists('working_data'):
+    #     os.mkdir('working_data')
+    # if (not force_refresh) & os.path.isfile(event_filename):
+    #     events = pd.read_csv(event_filename)
+    #     return process_eeg(raw_edf, events.lag_eeg_to_matlab), events
 
     ##Process sync channels
     data, times = sync_channel0[:]  # Extract data
@@ -141,12 +152,13 @@ def sync_matlab_and_eeg_events(edf_filename: str, timing_filename: str, event_fi
             event_data.set_value(lab, 'eeg_time', val)
 
     event_data = add_event_data_missing_sync(event_data)
-    event_data.sort_values('matlab_time',inplace=True)
+    event_data.sort_values('matlab_time', inplace=True)
 
     events = interpolate_missing(event_data)
     events['type'] = events['label'].apply(lambda lab: lab[0:lab.rfind("_")])
-    events['eeg_samples'] = events['eeg_time']*sample_rate
+    events['eeg_samples'] = events['eeg_time'] * sample_rate
     events.set_index('type', inplace=True, drop=False)
+    events.lag_eeg_to_matlab = lag_eeg_to_matlab
     events.to_csv(event_filename)
 
     # times -= lag_eeg_to_matlab
@@ -156,14 +168,20 @@ def sync_matlab_and_eeg_events(edf_filename: str, timing_filename: str, event_fi
 
     # TODO remove numbers from label to create a version for easy ERP events
 
-    return eeg, events
+    return process_eeg(raw_edf, lag_eeg_to_matlab), events
 
-def process_eeg(raw_edf):
-    eeg_out = dotdict({})
-    eeg_out.raw = raw_edf.drop_channels(ch_names=['SyncRR'])
+
+def process_eeg(raw_edf, start_at=None, end_at=None):
+    eeg_out = DotDict({})
+    eeg_out.raw = raw_edf.drop_channels(ch_names=['SyncRR']) #TODO we have errors in the sync process!!!!!!!!!!!!!!!!!
+    if start_at is not None:
+        eeg_out.raw = eeg_out.raw.crop(tmin=start_at)
+    if end_at is not None:
+        eeg_out.raw = eeg_out.raw.crop(tmax=end_at)
     eeg_out.raw.set_montage(mne.channels.read_montage('biosemi64'))
-    #TODO reref
+    # TODO reref
     return eeg_out
+
 
 def add_event_data_missing_sync(event_data):
     for idx, og_row in event_data.iterrows():
