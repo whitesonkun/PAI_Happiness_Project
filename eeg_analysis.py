@@ -16,7 +16,6 @@ def extract_erps(eeg: mne.io.RawArray, events: pd.DataFrame, plot: bool=True):
 
     plt.show(block=False)
 
-
 def pick_event_type(events, type):
     print('')
 

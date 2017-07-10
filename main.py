@@ -7,7 +7,7 @@ from yetti_utils import *
 import os.path
 import sys
 
-def load_eeg_data(sub_id: int, refresh_events: bool=False) -> object:
+def load_eeg_data(sub_id: int) -> object:
     edf_loc = "../Data/EEG/"
     timestamp_loc = "../Data/FeelData/EEGStudy1/Timestamps/"
     working_data_loc = './working_data/'
@@ -43,16 +43,29 @@ def load_eeg_data(sub_id: int, refresh_events: bool=False) -> object:
     return sync_matlab_and_eeg_events(edf_loc + "PAI_" + str(sub_id) + ".edf",
                                       timestamp_loc + "PAI_RawData_Subject" + str(sub_id) + "_EEGSync_Timestamps.xlsx",
                                       working_data_loc + "PAI_" + str(sub_id) + "_Events.xlsx",
-                                      init,
-                                      refresh_events)
+                                      init)
 
 def save_sub_data(sub_data):
     """Load exisitn subject data for a subject if it exisits"""
+
     file_name = "working_data/PAI_wd_sub"+str(sub_data.meta.sub_id)
     sub_data.events.to_csv(file_name+'_events.csv')
-    sub_data.eeg.raw.save(file_name+'_raw.fif', overwrite=True)
+    try:
+        os.remove(file_name + '_raw.fif')
+    except FileNotFoundError:
+        pass
+
+    try:
+        os.remove(file_name + '_impedance.fif')
+    except FileNotFoundError:
+        pass
+
     with open(file_name+'_meta.txt', 'w') as f:
         json.dump(sub_data.meta, f, ensure_ascii=False)
+
+    sub_data.eeg.raw.save(file_name + '_raw.fif', overwrite=True)
+    sub_data.eeg.impedance.save(file_name + '_impedance_raw.fif', overwrite=True)
+
 
 def load_sub_data(sub_id):
     sub_data = init_new_subject(sub_id)
@@ -60,30 +73,36 @@ def load_sub_data(sub_id):
     try:
         sub_data.events = pd.read_csv(file_name+'_events.csv')
         sub_data.eeg.raw = mne.io.read_raw_fif(file_name + '_raw.fif')
+        sub_data.eeg.raw.load_data()
+        sub_data.eeg.impedance = mne.io.read_raw_fif(file_name + '_impedance_raw.fif')
+        sub_data.eeg.impedance.load_data()
         with open(file_name+'_meta.txt') as r:
-            sub_data.meta = json.load(r)
+            sub_data.meta = DotDict(json.load(r))
     except FileNotFoundError:
         return False
+
+    return sub_data
 
 
 def init_new_subject(sub_id):
     """Created the object to hold a subjects data"""
-    sub_data = DotDict({'meta': {'sub_id': sub_id},'eeg':{}})
+    sub_data = DotDict({'meta': {'sub_id': sub_id}, 'eeg': {}})
     return sub_data
 
 if __name__ == "__main__":
+    refresh_data = False
 
     behav_loc = "../Data/Behavioral/EEGStudy1/"
 
     # ideally import counterbalance of good and bad files
-    sub_ids = [2019, 2024] #Need to work on 2022
+    sub_ids = [2019] #Need to work on 2022
 
     for sub_id in sub_ids:
-        # sub_data.feel_data = load_feel_data(sub_id)
-        sub_data = load_sub_data(sub_id) or init_new_subject(sub_id)
-        sub_data.eeg, sub_data.events = load_eeg_data(sub_id)#TODO add check if exisitsgit
-        add_event_channel_to_eeg(sub_data.eeg.raw, sub_data.events)
-        save_sub_data(sub_data)
-        plot_potentially_bad_channels(sub_data.eeg.raw)
+        sub_data = init_new_subject(sub_id) if refresh_data else load_sub_data(sub_id) or init_new_subject(sub_id)
+        if ('eeg' not in sub_data) or ('events' not in sub_data):
+            sub_data.eeg, sub_data.events = load_eeg_data(sub_id)
+            add_event_channel_to_eeg(sub_data.eeg.raw, sub_data.events)
+        #save_sub_data(sub_data)
+        plot_potentially_bad_channels(sub_data.eeg.raw, sub_data.eeg.impedance)
         #extract_erps(sub_data.eeg.raw, sub_data.events.eeg_samples['syncDataLight_BeforeInter_flipTime'])
 

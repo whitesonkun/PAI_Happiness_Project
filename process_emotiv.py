@@ -9,6 +9,7 @@ import warnings
 import datetime
 from scipy.interpolate import interp1d
 from yetti_utils import DotDict
+from mne_utils import mne_raw_apply_fun
 import json
 import os
 
@@ -30,13 +31,31 @@ def add_event_channel_to_eeg(eeg, events):
 
 ## Read EEG
 def sync_matlab_and_eeg_events(edf_filename: str, timing_filename: str, event_filename: str = None,
-                               init_slice: int = None, force_refresh: bool = False) -> object:
+                               init_slice: int = None) -> object:
     """Syncs the matlab events with times in the EEG data, returns imported eeg raw eeg and events"""
     sample_rate = 128
 
     channels_to_exclude = ['COUNTER', 'INTERPOLATED', 'RAW_CQ', 'GYROX', 'GYROY', 'MARKER', 'MARKER_HARDWARE', 'SYNC',
-                           'TIME_STAMP_s', 'TIME_STAMP_ms', 'CQ_AF3', 'CQ_F7', 'CQ_F3', 'CQ_FC5', 'CQ_T7', 'CQ_P7',
-                           'CQ_O1', 'CQ_O2', 'CQ_P8', 'CQ_T8', 'CQ_FC6', 'CQ_F4', 'CQ_F8', 'CQ_AF4', 'CQ_CMS', 'CQ_DRL']
+                           'TIME_STAMP_s', 'TIME_STAMP_ms']
+
+    impedance_channel_map = {
+        'CQ_AF3': 'im_F8',
+        'CQ_F7': 'im_F5',
+        'CQ_F3': 'im_Cz',
+        'CQ_FC5': 'im_C3',
+        'CQ_T7': 'im_Fz',
+        'CQ_P7': 'im_Sync1',
+        'CQ_O1': 'im_F7',
+        'CQ_O2': 'im_Sync2',
+        'CQ_P8': 'im_P7',
+        'CQ_T8': 'im_P3',
+        'CQ_FC6': 'im_P8',
+        'CQ_F4': 'im_Oz',
+        'CQ_F8': 'im_Pz',
+        'CQ_AF4': 'im_P4',
+        'CQ_CMS': 'im_CMS',
+        'CQ_DRL': 'im_DRL'
+    }
 
     channel_map = {'O1': 'F7',
                    'P7': 'Sync1',
@@ -53,6 +72,11 @@ def sync_matlab_and_eeg_events(edf_filename: str, timing_filename: str, event_fi
                    'FC6': 'P8',
                    'F4': 'Oz'}
 
+    data_channels = [value for key,value in channel_map.items()]
+    immedence_channels = [value for key,value in impedance_channel_map.items()]
+
+    channel_map.update(impedance_channel_map)
+
     raw_edf = mne.io.read_raw_edf(edf_filename, stim_channel=None, exclude=channels_to_exclude)
     try:
         raw_edf.load_data()
@@ -62,11 +86,9 @@ def sync_matlab_and_eeg_events(edf_filename: str, timing_filename: str, event_fi
     raw_edf.rename_channels(channel_map)
     raw_edf = mne.set_bipolar_reference(raw_edf, "Sync1", "Sync2", "SyncRR")
     sync_channel0 = raw_edf.copy().pick_channels(["SyncRR"])
-    # if not os.path.exists('working_data'):
-    #     os.mkdir('working_data')
-    # if (not force_refresh) & os.path.isfile(event_filename):
-    #     events = pd.read_csv(event_filename)
-    #     return process_eeg(raw_edf, events.lag_eeg_to_matlab), events
+
+    raw_im = raw_edf.copy().pick_channels(immedence_channels)
+    raw_edf.pick_channels(data_channels)
 
     ##Process sync channels
     data, times = sync_channel0[:]  # Extract data
@@ -165,22 +187,24 @@ def sync_matlab_and_eeg_events(edf_filename: str, timing_filename: str, event_fi
     # data = data[times > 0]
     # times = times[times > 0]
     # plot_sync_times(data, times, event_data)
+    eeg = DotDict({})
+    eeg.raw = raw_edf
+    eeg.impedance = raw_im
+    process_eeg(eeg, lag_eeg_to_matlab) #Modifies inplace
 
-    # TODO remove numbers from label to create a version for easy ERP events
-
-    return process_eeg(raw_edf, lag_eeg_to_matlab), events
+    return eeg, events
 
 
-def process_eeg(raw_edf, start_at=None, end_at=None):
-    eeg_out = DotDict({})
-    eeg_out.raw = raw_edf.drop_channels(ch_names=['SyncRR']) #TODO we have errors in the sync process!!!!!!!!!!!!!!!!!
+def process_eeg(eeg, start_at=None, end_at=None):  # TODO reref?
+    """Non-pure function to apply various signal processing to raw data"""
     if start_at is not None:
-        eeg_out.raw = eeg_out.raw.crop(tmin=start_at)
+        eeg.raw = eeg.raw.crop(tmin=start_at)
+        eeg.impedance = eeg.impedance.crop(tmin=start_at)
     if end_at is not None:
-        eeg_out.raw = eeg_out.raw.crop(tmax=end_at)
-    eeg_out.raw.set_montage(mne.channels.read_montage('biosemi64'))
-    # TODO reref
-    return eeg_out
+        eeg.raw = eeg.raw.crop(tmax=end_at)
+        eeg.impedance = eeg.impedance.crop(tmax=end_at)
+    eeg.raw.set_montage(mne.channels.read_montage('biosemi64'))
+    eeg.raw.filter(0.1, 60)
 
 
 def add_event_data_missing_sync(event_data):
