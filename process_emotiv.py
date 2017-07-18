@@ -190,12 +190,12 @@ def sync_matlab_and_eeg_events(edf_filename: str, timing_filename: str, event_fi
     eeg = DotDict({})
     eeg.raw = raw_edf
     eeg.impedance = raw_im
-    process_eeg(eeg, lag_eeg_to_matlab) #Modifies inplace
+    slice_and_add_eeg_montage(eeg, lag_eeg_to_matlab) #Modifies inplace
 
     return eeg, events
 
 
-def process_eeg(eeg, start_at=None, end_at=None):  # TODO reref?
+def slice_and_add_eeg_montage(eeg, start_at=None, end_at=None):
     """Non-pure function to apply various signal processing to raw data"""
     if start_at is not None:
         eeg.raw = eeg.raw.crop(tmin=start_at)
@@ -203,8 +203,7 @@ def process_eeg(eeg, start_at=None, end_at=None):  # TODO reref?
     if end_at is not None:
         eeg.raw = eeg.raw.crop(tmax=end_at)
         eeg.impedance = eeg.impedance.crop(tmax=end_at)
-    eeg.raw.set_montage(mne.channels.read_montage('biosemi64'))
-    eeg.raw.filter(0.1, 60)
+    eeg.raw = eeg.raw.set_montage(mne.channels.read_montage('biosemi64'))
 
 
 def add_event_data_missing_sync(event_data):

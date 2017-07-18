@@ -2,7 +2,7 @@
 from process_emotiv import *
 from process_feel import *
 from eeg_analysis import *
-from eeg_clean_channels import plot_potentially_bad_channels
+from eeg_preprocessing import interactive_channel_cleaner
 from yetti_utils import *
 import os.path
 import sys
@@ -86,7 +86,7 @@ def load_sub_data(sub_id):
 
 def init_new_subject(sub_id):
     """Created the object to hold a subjects data"""
-    sub_data = DotDict({'meta': {'sub_id': sub_id}, 'eeg': {}})
+    sub_data = DotDict({'meta': {'sub_id': sub_id, 'artifacting_params':{}}, 'eeg': {}})
     return sub_data
 
 if __name__ == "__main__":
@@ -95,14 +95,20 @@ if __name__ == "__main__":
     behav_loc = "../Data/Behavioral/EEGStudy1/"
 
     # ideally import counterbalance of good and bad files
-    sub_ids = [2019] #Need to work on 2022
+    sub_ids = [2019, 2024] #Need to work on 2022
 
     for sub_id in sub_ids:
-        sub_data = init_new_subject(sub_id) if refresh_data else load_sub_data(sub_id) or init_new_subject(sub_id)
+        sub_data = init_new_subject(sub_id) if refresh_data else (load_sub_data(sub_id) or init_new_subject(sub_id))
         if ('eeg' not in sub_data) or ('events' not in sub_data):
             sub_data.eeg, sub_data.events = load_eeg_data(sub_id)
             add_event_channel_to_eeg(sub_data.eeg.raw, sub_data.events)
-        #save_sub_data(sub_data)
-        plot_potentially_bad_channels(sub_data.eeg.raw, sub_data.eeg.impedance)
+
+        #Preproccessing
+        sub_data.meta.artifacting_params = interactive_channel_cleaner(sub_data.eeg.raw, sub_data.eeg.impedance)
+        if sub_data.meta.artifacting_params is None:
+            break
+        save_sub_data(sub_data)
+
         #extract_erps(sub_data.eeg.raw, sub_data.events.eeg_samples['syncDataLight_BeforeInter_flipTime'])
 
+    print('Program Done. Exiting')
